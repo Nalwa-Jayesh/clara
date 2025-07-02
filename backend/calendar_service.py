@@ -91,8 +91,8 @@ class GoogleCalendarService:
         end_time: datetime,
         attendee_email: Optional[str] = None,
         description: str = "",
-    ) -> str:
-        """Create a calendar event"""
+    ) -> dict:
+        """Create a calendar event and return event id and url"""
         try:
             print("[DEBUG] Creating event with:")
             print("  Title:", title)
@@ -120,7 +120,10 @@ class GoogleCalendarService:
                 .execute()
             )
             print("[DEBUG] Event created:", created_event)
-            return created_event['id']
+            return {
+                'id': created_event['id'],
+                'url': created_event.get('htmlLink', None)
+            }
         except HttpError as error:
             print("[ERROR] Failed to create event:", error)
             raise Exception(f'Failed to create event: {error}')

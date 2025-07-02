@@ -381,7 +381,7 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
             attendee_email = extracted_info.get("attendee_email")
 
             try:
-                event_id = self.calendar_service.create_event(
+                event_info = self.calendar_service.create_event(
                     title=title,
                     start_time=start_time,
                     end_time=end_time,
@@ -390,11 +390,12 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
                 )
 
                 state["booking_confirmed"] = {
-                    "event_id": event_id,
+                    "event_id": event_info["id"],
                     "title": title,
                     "start_time": start_time,
                     "end_time": end_time,
                     "attendee_email": attendee_email,
+                    "event_url": event_info.get("url"),
                 }
 
                 # Compose response
@@ -628,6 +629,7 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
                     start_time=booking["start_time"],
                     end_time=booking["end_time"],
                     attendee_email=booking.get("attendee_email"),
+                    event_url=booking.get("event_url"),
                 )
 
             return response

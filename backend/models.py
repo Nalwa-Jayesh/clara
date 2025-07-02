@@ -21,6 +21,7 @@ class BookingConfirmation(BaseModel):
     start_time: datetime
     end_time: datetime
     attendee_email: Optional[str] = None
+    event_url: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
