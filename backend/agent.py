@@ -292,13 +292,22 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
                         "conversation_id": state["conversation_id"],
                         "requires_input": False,
                     }
-                # Format the events for the user
+                # Store mapping of event names (and optionally date/time) to event IDs in conversation context
+                name_to_id = {}
                 event_lines = []
                 for event in events:
                     summary = event.get('summary', 'Untitled')
                     start = event['start'].get('dateTime', '')
                     end = event['end'].get('dateTime', '')
-                    event_lines.append(f"• {summary}: {start} - {end}")
+                    event_id = event.get('id', '')
+                    # Use (summary, start) as key for uniqueness
+                    name_to_id[(summary.lower(), start)] = event_id
+                    event_lines.append(f"• {summary} (ID: {event_id}): {start} - {end}")
+                # Save mapping in conversation context
+                conversation = self.conversations[state["conversation_id"]]
+                if "context" not in conversation:
+                    conversation["context"] = {}
+                conversation["context"]["name_to_id"] = name_to_id
                 response_text = "Here are your appointments for the day:\n" + "\n".join(event_lines)
                 return {
                     "message": response_text,
@@ -459,14 +468,62 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
         try:
             result = self.graph.invoke(state)
 
-            # Add assistant response to history
+            # Determine the assistant's reply for history
+            assistant_reply = result.get("response") or result.get("message", "")
+
             conversation["history"].append(
                 {
                     "role": "assistant",
-                    "content": result["response"],
+                    "content": assistant_reply,
                     "timestamp": datetime.now().isoformat(),
                 }
             )
+
+            # Handle list appointments intent
+            if result.get("intent") == "list_appointments":
+                extracted_info = result.get("extracted_info", {})
+                date = extracted_info.get("date")
+                from dateutil import parser
+                import pytz
+                tz = pytz.timezone('Asia/Kolkata')
+                if date:
+                    try:
+                        target_date = parser.parse(date).date()
+                    except Exception:
+                        target_date = datetime.now(tz).date()
+                else:
+                    target_date = datetime.now(tz).date()
+                start_of_day = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=tz)
+                end_of_day = start_of_day + timedelta(days=1)
+                events = self.calendar_service.list_events(start_of_day, end_of_day)
+                if not events:
+                    return {
+                        "message": "You have no appointments for that day.",
+                        "conversation_id": conversation_id,
+                        "requires_input": False,
+                    }
+                # Store mapping of event names (and optionally date/time) to event IDs in conversation context
+                name_to_id = {}
+                event_lines = []
+                for event in events:
+                    summary = event.get('summary', 'Untitled')
+                    start = event['start'].get('dateTime', '')
+                    end = event['end'].get('dateTime', '')
+                    event_id = event.get('id', '')
+                    # Use (summary, start) as key for uniqueness
+                    name_to_id[(summary.lower(), start)] = event_id
+                    event_lines.append(f"• {summary} (ID: {event_id}): {start} - {end}")
+                # Save mapping in conversation context
+                conversation = self.conversations[conversation_id]
+                if "context" not in conversation:
+                    conversation["context"] = {}
+                conversation["context"]["name_to_id"] = name_to_id
+                response_text = "Here are your appointments for the day:\n" + "\n".join(event_lines)
+                return {
+                    "message": response_text,
+                    "conversation_id": conversation_id,
+                    "requires_input": False,
+                }
 
             # Handle cancel_booking intent (generalized deletion)
             if result.get("intent") == "cancel_booking":
@@ -475,6 +532,31 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
                 title = extracted_info.get("title")
                 date = extracted_info.get("date")
                 time = extracted_info.get("time")
+                # Try to resolve event_id from mapping if only title (and optionally date/time) is given
+                if not event_id and title:
+                    conversation = self.conversations[conversation_id]
+                    name_to_id = conversation.get("context", {}).get("name_to_id", {})
+                    # Try to match by title (case-insensitive, most recent occurrence)
+                    matched_id = None
+                    matched_key = None
+                    for (event_title, event_start), eid in name_to_id.items():
+                        if title.lower() in event_title:
+                            # If date/time is provided, try to match start time as well
+                            if date or time:
+                                if date and date in event_start:
+                                    matched_id = eid
+                                    matched_key = (event_title, event_start)
+                                    break
+                                if time and time in event_start:
+                                    matched_id = eid
+                                    matched_key = (event_title, event_start)
+                                    break
+                            else:
+                                matched_id = eid
+                                matched_key = (event_title, event_start)
+                                break
+                    if matched_id:
+                        event_id = matched_id
                 # If event_id is 'last', get the most recent event
                 if event_id == "last":
                     last_event = self.calendar_service.find_event()
@@ -519,46 +601,9 @@ Important: Return ONLY the JSON object, no additional text or formatting. Always
                         "requires_input": True,
                     }
 
-            # Handle list appointments intent
-            if result.get("intent") == "list_appointments":
-                extracted_info = result.get("extracted_info", {})
-                date = extracted_info.get("date")
-                from dateutil import parser
-                import pytz
-                tz = pytz.timezone('Asia/Kolkata')
-                if date:
-                    try:
-                        target_date = parser.parse(date).date()
-                    except Exception:
-                        target_date = datetime.now(tz).date()
-                else:
-                    target_date = datetime.now(tz).date()
-                start_of_day = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=tz)
-                end_of_day = start_of_day + timedelta(days=1)
-                events = self.calendar_service.list_events(start_of_day, end_of_day)
-                if not events:
-                    return {
-                        "message": "You have no appointments for that day.",
-                        "conversation_id": conversation_id,
-                        "requires_input": False,
-                    }
-                # Format the events for the user
-                event_lines = []
-                for event in events:
-                    summary = event.get('summary', 'Untitled')
-                    start = event['start'].get('dateTime', '')
-                    end = event['end'].get('dateTime', '')
-                    event_lines.append(f"• {summary}: {start} - {end}")
-                response_text = "Here are your appointments for the day:\n" + "\n".join(event_lines)
-                return {
-                    "message": response_text,
-                    "conversation_id": conversation_id,
-                    "requires_input": False,
-                }
-
             # Prepare response
             response = {
-                "message": result["response"],
+                "message": result.get("response", result.get("message", "")),
                 "conversation_id": conversation_id,
                 "requires_input": not result.get("booking_confirmed"),
             }

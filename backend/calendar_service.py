@@ -147,20 +147,35 @@ class GoogleCalendarService:
                 search_date = datetime.now(tz)
         else:
             search_date = datetime.now(tz)
+        # Ensure timezone-aware datetimes
+        if search_date.tzinfo is None:
+            search_date = tz.localize(search_date)
+        else:
+            search_date = search_date.astimezone(tz)
         start_of_day = search_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1)
         events = self.list_events(start_of_day, end_of_day)
         matches = []
         for event in events:
-            # Match by title if provided
-            if title and title.lower() not in event.get('summary', '').lower():
-                continue
-            # Match by time if provided
+            # Case-insensitive, partial title match
+            if title:
+                event_title = event.get('summary', '').lower()
+                if title.lower() not in event_title:
+                    continue
+            # Flexible time match
             if time:
                 event_start = event['start'].get('dateTime')
                 if event_start:
-                    event_time = datetime.fromisoformat(event_start).strftime('%H:%M')
-                    if event_time != time:
+                    event_dt = datetime.fromisoformat(event_start)
+                    event_time_24 = event_dt.strftime('%H:%M')
+                    event_time_12 = event_dt.strftime('%I:%M %p').lstrip('0')
+                    # Accept both 24-hour and 12-hour (with or without AM/PM)
+                    if not (
+                        time == event_time_24 or
+                        time == event_time_12 or
+                        time in event_time_12 or
+                        time in event_time_24
+                    ):
                         continue
             matches.append(event)
         if len(matches) == 1:
@@ -171,6 +186,16 @@ class GoogleCalendarService:
 
     def list_events(self, start_date: datetime, end_date: datetime):
         """List all events between start_date and end_date"""
+        tz = pytz.timezone('Asia/Kolkata')
+        # Ensure timezone-aware datetimes
+        if start_date.tzinfo is None:
+            start_date = tz.localize(start_date)
+        else:
+            start_date = start_date.astimezone(tz)
+        if end_date.tzinfo is None:
+            end_date = tz.localize(end_date)
+        else:
+            end_date = end_date.astimezone(tz)
         try:
             events_result = self.service.events().list(
                 calendarId=self.calendar_id,
