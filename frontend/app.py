@@ -4,9 +4,14 @@ from typing import Any, Dict, List
 
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # Page configuration
 st.set_page_config(
@@ -182,6 +187,10 @@ def display_message(message: Dict[str, Any], is_user: bool = False):
 def display_booking_confirmation(booking: Dict[str, Any]):
     """Display booking confirmation"""
     attendee_html = f'<p><strong>📧 Attendee:</strong> {booking["attendee_email"]}</p>' if booking.get("attendee_email") else ''
+    url_html = (
+        f'<p><a href="{booking["event_url"]}" target="_blank" style="color:#2563eb;font-weight:bold;">🔗 View in Google Calendar</a></p>'
+        if booking.get("event_url") else ''
+    )
     html = (
         '<div class="booking-confirmed">'
         '<h3>✅ Booking Confirmed!</h3>'
@@ -193,6 +202,7 @@ def display_booking_confirmation(booking: Dict[str, Any]):
         '<span class="event-id-label">ID</span>'
         f'<span>{booking["event_id"]}</span>'
         '</div>'
+        f'{url_html}'
         '</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
@@ -272,8 +282,8 @@ def handle_user_input(user_input: str):
     })
     # --- End auto-log ---
 
-    # If the response contains a list of appointments/events, display them with delete buttons
-    if "appointments" in response:
+    # Defensive check before using response
+    if 'response' in locals() and response and "appointments" in response and response["appointments"]:
         display_events_with_delete(response["appointments"])
 
 
@@ -340,6 +350,24 @@ def render_sidebar():
             st.subheader("📝 Conversation Info")
             st.write(f"**ID:** `{chat_id[:8]}...`")
             st.write(f"**Messages:** {len(messages)}")
+
+        # Demo Commands for Users
+        st.subheader("💡 Demo Commands")
+        st.markdown("""
+* **Book an appointment:**
+    - `Book a meeting for tomorrow at 3pm`
+    - `Schedule a call with John on Friday at 10:00 AM`
+* **List appointments:**
+    - `Show my appointments for today`
+    - `List all meetings for next Monday`
+* **Delete/cancel an appointment:**
+    - `Cancel my meeting called 'Project Sync'`
+    - `Delete the appointment for tomorrow at 2pm`
+    - `Remove the event 'Doctor Appointment'`
+* **General help:**
+    - `What can you do?`
+    - `How do I book a slot?`
+""")
 
         return api_status
 
